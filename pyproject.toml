@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codepack"
+version = "0.1.0"
+description = "Pack a source project into a single text file for pasting into web-based AI assistants."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "pathspec>=0.12",
+    "PySide6>=6.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-qt>=4.2",
+]
+build = [
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+codepack = "codepack.cli:main"
+
+[project.gui-scripts]
+codepack-gui = "codepack.gui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["codepack*"]
+
+[tool.setuptools.package-data]
+"codepack.core" = ["presets/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

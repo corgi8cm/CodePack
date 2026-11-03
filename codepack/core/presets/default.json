@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "name": "default",
+  "description": "Common build outputs, caches and IDE folders excluded",
+  "rules": {
+    "include": [],
+    "exclude": [
+      "__pycache__/", "*.pyc", ".venv/", "venv/", "env/", ".tox/", ".mypy_cache/", ".pytest_cache/",
+      "*.egg-info/", "dist/", "build/", "out/", "bin/", "obj/", "cmake-build-*/", "CMakeFiles/",
+      ".vs/", ".vscode/", ".idea/", "node_modules/", "*.lock", "package-lock.json"
+    ],
+    "use_gitignore": true,
+    "max_file_size": 1000000
+  },
+  "options": {
+    "format": "markdown",
+    "include_tree": true,
+    "tree_scope": "selected",
+    "preamble": ""
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "cpp",
+  "description": "C/C++ sources, headers and build scripts",
+  "rules": {
+    "include": [
+      "*.c", "*.cc", "*.cpp", "*.cxx", "*.h", "*.hh", "*.hpp", "*.hxx", "*.inl", "*.ipp", "*.tpp",
+      "*.cu", "*.cuh", "CMakeLists.txt", "*.cmake", "Makefile", "meson.build", "*.md"
+    ],
+    "exclude": [
+      "build/", "out/", "bin/", "obj/", "cmake-build-*/", "CMakeFiles/", ".vs/", ".vscode/", ".idea/",
+      "third_party/", "external/", "vendor/"
+    ],
+    "use_gitignore": true,
+    "max_file_size": 1000000
+  },
+  "options": {
+    "format": "markdown",
+    "include_tree": true,
+    "tree_scope": "selected",
+    "preamble": ""
+  }
+}

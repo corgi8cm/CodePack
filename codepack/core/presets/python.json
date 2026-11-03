@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "python",
+  "description": "Python sources and project configuration",
+  "rules": {
+    "include": [
+      "*.py", "*.pyi", "*.pyx", "pyproject.toml", "setup.cfg", "setup.py", "requirements*.txt",
+      "*.ini", "*.toml", "*.md"
+    ],
+    "exclude": [
+      "__pycache__/", ".venv/", "venv/", "env/", ".tox/", ".mypy_cache/", ".pytest_cache/",
+      "*.egg-info/", "dist/", "build/"
+    ],
+    "use_gitignore": true,
+    "max_file_size": 1000000
+  },
+  "options": {
+    "format": "markdown",
+    "include_tree": true,
+    "tree_scope": "selected",
+    "preamble": ""
+  }
+}
