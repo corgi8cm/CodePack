@@ -17,6 +17,15 @@ def _write_tree(root: Path, files: dict[str, str | bytes]) -> Path:
     return root
 
 
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path_factory, monkeypatch) -> Path:
+    """Keep presets and the masking key out of the real user profile."""
+    config = tmp_path_factory.mktemp("config")
+    monkeypatch.setenv("APPDATA", str(config))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
+    return config
+
+
 @pytest.fixture
 def make_project(tmp_path: Path) -> Callable[[dict[str, str | bytes]], Path]:
     """Create a fake project: ``make_project({"src/a.cpp": "int x;"})``."""

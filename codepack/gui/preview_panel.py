@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from codepack.core import PackResult
+from codepack.gui.labels import SECRET_LABELS
 
 TOKEN_LIMITS = [
     ("32K", 32_000),
@@ -46,6 +48,11 @@ class PreviewPanel(QWidget):
 
         self.stale_label = QLabel("")
         self.stale_label.setStyleSheet("color: #b8860b;")
+        self.secrets_button = QPushButton()
+        self.secrets_button.setFlat(True)
+        self.secrets_button.setStyleSheet("color: #2e7d32; text-align: left;")
+        self.secrets_button.clicked.connect(self._show_findings)
+        self.secrets_button.hide()
 
         self.limit_combo = QComboBox()
         for label, value in TOKEN_LIMITS:
@@ -77,6 +84,7 @@ class PreviewPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.preview, 1)
         layout.addWidget(self.stale_label)
+        layout.addWidget(self.secrets_button)
         layout.addLayout(limit_row)
         layout.addLayout(buttons)
 
@@ -96,6 +104,9 @@ class PreviewPanel(QWidget):
         self.copy_button.setEnabled(has)
         self.save_button.setEnabled(has)
         self.set_stale(False)
+        findings = result.findings if result is not None else []
+        self.secrets_button.setText(f"🔒 已遮罩 {len(findings)} 處機密(點此查看)")
+        self.secrets_button.setVisible(bool(findings))
         if result is None:
             self.preview.clear()
         else:
@@ -130,6 +141,22 @@ class PreviewPanel(QWidget):
         self.bar.setStyleSheet("QProgressBar::chunk { background-color: #d9534f; }" if over else "")
         if over:
             self.bar.setFormat(self.bar.format() + "  超過上限")
+
+    def findings_text(self) -> str:
+        if self._result is None:
+            return ""
+        lines = [f"{f.rel_path}:{f.line}  {SECRET_LABELS.get(f.kind, f.kind)}  {f.preview}" for f in self._result.findings]
+        return "\n".join(lines)
+
+    def _show_findings(self) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle("已遮罩的機密")
+        box.setText(
+            "以下內容在輸出中已換成 <REDACTED:...> 佔位符。\n"
+            "用「套用回答」寫回專案時，佔位符會自動還原成原本的值。"
+        )
+        box.setDetailedText(self.findings_text())
+        box.exec()
 
     def copy(self) -> None:
         if self._result is not None:

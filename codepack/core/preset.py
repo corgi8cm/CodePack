@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
-import sys
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
 from codepack.core.packer import PackOptions
+from codepack.core.paths import user_config_dir
 from codepack.core.rules import RuleSet
 
 SCHEMA_VERSION = 1
@@ -78,11 +77,7 @@ def default_preset() -> Preset:
 
 
 def user_preset_dir() -> Path:
-    if sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
-        return base / "CodePack" / "presets"
-    base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    return base / "codepack" / "presets"
+    return user_config_dir() / "presets"
 
 
 def user_presets(directory: Path | None = None) -> list[Preset]:

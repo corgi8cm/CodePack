@@ -126,6 +126,16 @@ class Selection:
             return True
         return False
 
+    def add_files(self, files: Iterable[str]) -> list[str]:
+        """Check each file (forcing excluded ones). Returns the files that could not be checked."""
+        rejected = [rel for rel in files if not self.set_file(rel, True)]
+        return rejected
+
+    def select_only(self, files: Iterable[str]) -> list[str]:
+        """Uncheck everything, then check ``files``. Returns the files that could not be checked."""
+        self.set_dir("", False)
+        return self.add_files(files)
+
     def reset(self) -> None:
         self.forced_on.clear()
         self.forced_off.clear()

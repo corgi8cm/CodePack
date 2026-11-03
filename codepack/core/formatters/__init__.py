@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from codepack.core.formatters.base import Formatter, PackDocument, PackedFile
+from codepack.core.formatters.base import ExtraSection, Formatter, PackDocument, PackedFile
 from codepack.core.formatters.markdown import MarkdownFormatter
 from codepack.core.formatters.plain import PlainFormatter
 from codepack.core.formatters.xml import XmlFormatter
@@ -33,6 +33,7 @@ def get_formatter(name: str) -> Formatter:
 
 
 __all__ = [
+    "ExtraSection",
     "Formatter",
     "PackDocument",
     "PackedFile",

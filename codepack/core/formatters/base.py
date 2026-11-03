@@ -13,11 +13,23 @@ class PackedFile:
 
 
 @dataclass
+class ExtraSection:
+    """Additional content after the files, e.g. a git diff."""
+
+    title: str
+    content: str
+    language: str = ""
+
+
+@dataclass
 class PackDocument:
     project_name: str
     tree: str = ""
     files: list[PackedFile] = field(default_factory=list)
     preamble: str = ""
+    sections: list[ExtraSection] = field(default_factory=list)
+    postscript: str = ""
+    """Text placed at the very end, e.g. reply-format instructions."""
 
 
 class Formatter(ABC):

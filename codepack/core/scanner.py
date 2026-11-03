@@ -13,7 +13,7 @@ from codepack.core.reader import decode_bytes
 from codepack.core.rules import CompiledRules, GitignoreStack, RuleSet
 from codepack.core.tokens import DEFAULT_ESTIMATOR, CharTokenEstimator, TokenEstimator
 
-ALWAYS_SKIP_DIRS = frozenset({".git", ".hg", ".svn"})
+ALWAYS_SKIP_DIRS = frozenset({".git", ".hg", ".svn", ".codepack"})
 
 ProgressCallback = Callable[[int, str], None]
 CancelCallback = Callable[[], bool]

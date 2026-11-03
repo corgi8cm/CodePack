@@ -32,8 +32,28 @@ scan_project ─▶ ScanResult ─▶ (Collector) ─▶ (Transforms) ─▶ For
 | `core/selection.py` | `Selection`:勾選狀態,資料夾勾選連帶子項目(不含被排除者) |
 | `core/tree_render.py` | `render_tree()` |
 | `core/formatters/` | `Formatter` ABC + markdown / xml / plain,以註冊表 `get_formatter()` 取用 |
-| `core/packer.py` | `PackOptions`、`PackResult`(`parts: list[str]`,為分段預留)、`build_pack()` |
+| `core/packer.py` | `PackOptions`、`PackResult`(`parts: list[str]`,為分段預留;`findings` 為遮罩紀錄)、`build_pack()` |
 | `core/preset.py` | `Preset` JSON 讀寫、內建 preset(`core/presets/*.json`)、使用者 preset 目錄 |
+| `core/paths.py` | `user_config_dir()`(preset、遮罩金鑰都放這裡) |
+| `core/scanners/secrets.py` | `SecretMasker`:API key / 密碼 / 私鑰 / JWT / 連線字串 / 內部 IP → `<REDACTED:kind:hmac8>`;`unmask()` |
+| `core/deps/` | `resolve_dependencies()` + `DependencyResolver` 協定;`PythonImportResolver`(ast)、`CppIncludeResolver`(自寫 #include 解析 + `compile_commands.json`) |
+| `core/collectors/git.py` | `changed_files()`、`git_diff_text()`(只呼叫本機 `git`) |
+| `core/apply/` | 回程:`formats`(要求 AI 的回答格式)、`parser`(FILE 區塊 / unified diff)、`patch`(容錯套用 hunk)、`planner`(`plan_changes` / `apply_plan`)、`backup`(備份與還原) |
+
+### 機密遮罩
+- placeholder 的 8 碼是以「每台機器隨機金鑰」(`user_config_dir()/mask.key`)計算的 HMAC:同一個值永遠得到同一個 placeholder,但從 placeholder 推不回原值。
+- 套用回答時，`plan_changes` 會先用舊檔內容、再用整個專案的檔案重建 placeholder → 原值對照表，自動還原;還原不了的會列為警告。
+- 規則順序即優先序(越前面越具體);新增規則時要在 `tests/core/test_secrets.py` 補正反例。測試裡的假金鑰要用字串拼接產生，不要寫成完整字面值。
+
+### 依賴追蹤
+- Python:被隱式執行的 package `__init__.py`(例如 `from pkg.mod import x` 會跑 `pkg/__init__.py`)會納入但不往下追(`Dependencies.leaves`),否則會把整個套件拉進來。明確 `import pkg` 或從 `__init__` 匯入名稱時才會追。
+- C++:不跑前處理器，所有 `#include` 都算(不看 `#if`)。解析順序:引用檔所在目錄(僅 `""`)→ include 目錄(自動:`""`/`include`/`inc`/`src` + 使用者指定 + `compile_commands.json`)→ 專案內路徑後綴唯一比對。
+- 被規則排除的依賴預設不加入，列在 `DependencyResult.skipped`。
+
+### 套用回答(回程)
+- 安全：拒絕絕對路徑、`..`、經由連結跳出專案、`.git/`、`.codepack/`。寫入前比對 sha256,檔案在預覽後被改過就拒絕。
+- 保留原檔的換行(CRLF)與編碼(例如 cp950)。
+- 備份放 `<專案>/.codepack/backups/<id>/`(資料夾內自帶 `.gitignore`),掃描器一律跳過 `.codepack/`。git repo 另外用 `git stash create` + `git stash store` 留一份快照：**不可用 `git stash push`**,那會把使用者未提交的修改移走。
 
 CLI 剪貼簿使用 `codepack/clipboard.py`(Windows 走 ctypes Win32 API,Linux 走 wl-copy/xclip/xsel),不依賴 GUI 套件。
 
@@ -44,20 +64,21 @@ CLI 剪貼簿使用 `codepack/clipboard.py`(Windows 走 ctypes Win32 API,Linux �
 | `main_window.py` | 工具列、三欄 QSplitter、狀態列;QSettings 記住上次專案/視窗大小 |
 | `file_tree_model.py` | `FileTreeModel(QAbstractItemModel)`,直接讀 core 的 `ScanResult` + `Selection` |
 | `file_tree_panel.py` | 搜尋(`QSortFilterProxyModel` 遞迴過濾)+ 樹狀檢視 |
-| `rules_panel.py` | 規則與輸出選項;規則變更 debounce 後觸發重新掃描 |
-| `preview_panel.py` | 預覽、token 上限進度條、複製/另存 |
+| `rules_panel.py` | 分頁：過濾規則 / 輸出選項 / 選取工具(git、依賴);規則變更 debounce 後觸發重新掃描 |
+| `preview_panel.py` | 預覽、token 上限進度條、遮罩數量、複製/另存 |
+| `apply_dialog.py` | 貼上 AI 回答 → 變更清單 + diff 預覽 → 勾選套用(備份)→ 還原 |
 | `workers.py` | `ScanJob` / `PackJob`(QRunnable),以 job id 丟棄過期結果 |
 
-GUI 測試用 pytest-qt,`tests/gui/conftest.py` 設定 `QT_QPA_PLATFORM=offscreen`;MainWindow 測試要傳入暫存的 `QSettings` 與 `preset_dir`,不可寫到使用者真實設定。
+GUI 測試用 pytest-qt,`tests/gui/conftest.py` 設定 `QT_QPA_PLATFORM=offscreen`;MainWindow 測試要傳入暫存的 `QSettings` 與 `preset_dir`,不可寫到使用者真實設定。`tests/conftest.py` 的 autouse fixture 會把 `APPDATA` / `XDG_CONFIG_HOME` 指到暫存目錄(preset 與遮罩金鑰)。
 
 ### 規則語意
-- include 為空 = 全部納入;exclude 優先於 include;語法皆為 gitignore 風格(pathspec `gitwildmatch`)。
-- `.git/` 一律跳過。被忽略的目錄不往下掃描,以單一 `DirEntry(pruned=...)` 呈現。
+- include 為空 = 全部納入;exclude 優先於 include;語法皆為 gitignore 風格(`pathspec.GitIgnoreSpec`)。
+- `.git/`、`.codepack/` 一律跳過。被忽略的目錄不往下掃描,以單一 `DirEntry(pruned=...)` 呈現。
 - 被排除的檔案仍出現在 `ScanResult` 中(GUI 顯示灰色),使用者可手動勾選強制納入,但 `BINARY` 不可勾選。勾選資料夾時不會連帶勾選被排除的檔案。
 
 ## 預留擴充(尚未實作)
-- 第二階段:`core/deps/`(`DependencyResolver`:自寫 #include 解析 → g++ -MM → MSVC /showIncludes;`compile_commands.json`)、`PackOptions.preamble` 前置提示詞、`core/scanners/`(`ContentScanner` 機密掃描)。
-- 第三階段:`core/collectors/`(git 變更檔)、`PackOptions.max_tokens_per_part` 自動分段、`core/transforms/`(移除註解)。
+- `DependencyResolver` 的 g++ -MM / MSVC /showIncludes 實作。
+- `PackOptions.max_tokens_per_part` 自動分段、`core/transforms/`(移除註解)。
 
 ## 常用指令
 ```bash
@@ -65,5 +86,7 @@ python -m venv .venv && .venv\Scripts\activate   # Linux: source .venv/bin/activ
 pip install -e .[dev]
 pytest
 python -m codepack pack <dir> -f markdown -o out.md
+python -m codepack pack <dir> --deps src/main.cpp --reply-format files --copy
+python -m codepack apply <dir> reply.md --dry-run
 codepack-gui
 ```

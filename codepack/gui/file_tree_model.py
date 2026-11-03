@@ -184,6 +184,20 @@ class FileTreeModel(QAbstractItemModel):
         if self._selection is None:
             return
         self._selection.set_dir("", checked)
+        self._refresh_all()
+
+    def select_files(self, files: list[str], replace: bool) -> list[str]:
+        """Check ``files`` (after unchecking everything if ``replace``). Returns rejected files."""
+        if self._selection is None:
+            return list(files)
+        if replace:
+            rejected = self._selection.select_only(files)
+        else:
+            rejected = self._selection.add_files(files)
+        self._refresh_all()
+        return rejected
+
+    def _refresh_all(self) -> None:
         self._dir_tokens.clear()
         self._emit_changed("")
         self.selectionChanged.emit()

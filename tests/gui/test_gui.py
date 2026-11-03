@@ -147,3 +147,133 @@ def test_save_output(window, qtbot, sample_project, monkeypatch, tmp_path):
     )
     window.save_output()
     assert dest.read_text(encoding="utf-8") == window.preview_panel.result.text
+
+
+# --- dependency tracking, git, masking, apply dialog ------------------------
+
+import shutil
+import subprocess
+
+from PySide6.QtWidgets import QMessageBox
+
+from codepack.core import PackOptions, Preset, RuleSet
+from codepack.gui.apply_dialog import ApplyDialog
+from codepack.gui.rules_panel import RulesPanel
+
+
+def test_rules_panel_roundtrip(qtbot):
+    panel = RulesPanel()
+    qtbot.addWidget(panel)
+    opts = PackOptions(format="xml", mask_secrets=False, reply_format="diff", git_diff=True,
+                       git_base="main", git_staged=True, preamble="Review")
+    panel.load_preset(Preset("p", RuleSet(include=["*.py"]), opts))
+    assert panel.options() == opts
+    assert panel.rules().include == ["*.py"]
+    panel.depth_spin.setValue(0)
+    panel.include_dirs_edit.setText("third_party; vendor/include")
+    dep = panel.dep_options()
+    assert dep.max_depth is None and dep.include_dirs == ["third_party", "vendor/include"]
+
+
+def test_select_dependencies(window, qtbot, sample_project):
+    _open(window, qtbot, sample_project)
+    window.select_dependencies("src/main.cpp", replace=True)
+    assert window.tree_model.selection.checked_files() == ["src/main.cpp", "src/util.h"]
+    assert "依賴" in window.status_message.text()
+    window.tree_model.set_checked("scripts/run.py", True)
+    window.rules_panel.pair_check.setChecked(True)
+    window.select_dependencies("src/main.cpp", replace=False)
+    assert "src/util.cpp" in window.tree_model.selection.checked_files()
+    assert "scripts/run.py" in window.tree_model.selection.checked_files()  # add mode keeps others
+
+
+def test_deps_button_uses_current_tree_item(window, qtbot, sample_project, monkeypatch):
+    _open(window, qtbot, sample_project)
+    shown = []
+    monkeypatch.setattr("codepack.gui.main_window.QMessageBox.information", lambda *a: shown.append(a))
+    window._deps_for_current(True)
+    assert shown  # nothing highlighted yet
+    src = window.tree_panel.proxy.mapFromSource(window.tree_model.index_of("src/main.cpp"))
+    window.tree_panel.view.setCurrentIndex(src)
+    window._deps_for_current(True)
+    assert window.tree_model.selection.checked_files() == ["src/main.cpp", "src/util.h"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+def test_select_git_changes(window, qtbot, sample_project):
+    def git(*a):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@e.com", "-c", "commit.gpgsign=false", *a],
+                       cwd=sample_project, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
+    (sample_project / "src" / "util.h").write_text("#pragma once\n// changed\n")
+    _open(window, qtbot, sample_project)
+    window.select_git_changes()
+    assert window.tree_model.selection.checked_files() == ["src/util.h"]
+
+
+def test_select_git_changes_not_repo(window, qtbot, sample_project, monkeypatch):
+    _open(window, qtbot, sample_project)
+    warned = []
+    monkeypatch.setattr("codepack.gui.main_window.QMessageBox.warning", lambda *a: warned.append(a))
+    window.select_git_changes()
+    assert warned
+
+
+def test_masked_secrets_indicator(window, qtbot, sample_project):
+    (sample_project / "src" / "cfg.h").write_text('const char* kPassword = "hunter22";\n')
+    _open(window, qtbot, sample_project)
+    window.pack()
+    qtbot.waitUntil(lambda: window.preview_panel.result is not None, timeout=10_000)
+    assert "hunter22" not in window.preview_panel.preview.toPlainText()
+    assert not window.preview_panel.secrets_button.isHidden()
+    assert "1 處" in window.preview_panel.secrets_button.text()
+    assert "src/cfg.h:1" in window.preview_panel.findings_text()
+
+
+def test_reply_format_appended(window, qtbot, sample_project):
+    _open(window, qtbot, sample_project)
+    combo = window.rules_panel.reply_combo
+    combo.setCurrentIndex(combo.findData("files"))
+    window.pack()
+    qtbot.waitUntil(lambda: window.preview_panel.result is not None, timeout=10_000)
+    assert "=== END FILE ===" in window.preview_panel.preview.toPlainText()
+
+
+def test_apply_dialog_parse_apply_restore(qtbot, sample_project, monkeypatch):
+    monkeypatch.setattr(
+        "codepack.gui.apply_dialog.QMessageBox.question", lambda *a, **k: QMessageBox.StandardButton.Yes
+    )
+    dialog = ApplyDialog(sample_project)
+    qtbot.addWidget(dialog)
+    assert not dialog.restore_button.isEnabled()
+    reply = (
+        "=== FILE: src/util.h ===\n#pragma once\nint add(int, int);\n=== END FILE ===\n"
+        "--- a/missing.cpp\n+++ b/missing.cpp\n@@ -1 +1 @@\n-a\n+b\n"
+    )
+    dialog.reply_edit.setPlainText(reply)
+    dialog.parse()
+    assert dialog.change_list.topLevelItemCount() == 2
+    assert dialog.checked_paths() == ["src/util.h"]
+    assert "+int add(int, int);" in dialog.diff_view.toPlainText()
+    assert dialog.apply_button.isEnabled()
+
+    with qtbot.waitSignal(dialog.applied):
+        dialog.apply()
+    assert (sample_project / "src" / "util.h").read_text() == "#pragma once\nint add(int, int);\n"
+    assert dialog.restore_button.isEnabled()
+    assert dialog.checked_paths() == []  # now unchanged
+
+    with qtbot.waitSignal(dialog.applied):
+        dialog.restore()
+    assert (sample_project / "src" / "util.h").read_text() == "#pragma once\nint add(int a, int b);\n"
+
+
+def test_apply_dialog_from_main_window(window, qtbot, sample_project):
+    _open(window, qtbot, sample_project)
+    window.open_apply_dialog()
+    assert window.apply_dialog is not None and window.apply_dialog.isVisible()
+    assert window.apply_dialog.root == sample_project.resolve()
+    window.apply_dialog.close()

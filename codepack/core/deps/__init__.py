@@ -1,10 +1,23 @@
-"""Phase 2: C++ dependency analysis (not implemented yet).
+"""Dependency tracking: start from target files and follow Python imports
+and C/C++ #include directives to the project files they need."""
 
-Planned interface::
+from codepack.core.deps.base import (
+    Dependencies,
+    DependencyResolver,
+    DependencyResult,
+    DepOptions,
+    resolve_dependencies,
+)
+from codepack.core.deps.cpp import CppIncludeResolver, include_dirs_from_compile_commands
+from codepack.core.deps.python import PythonImportResolver
 
-    class DependencyResolver(Protocol):
-        def resolve(self, source: Path, ctx: BuildContext) -> list[Path]: ...
-
-Implementations: a regex #include parser, then g++ -MM and MSVC /showIncludes.
-BuildContext will be populated from compile_commands.json.
-"""
+__all__ = [
+    "CppIncludeResolver",
+    "DepOptions",
+    "Dependencies",
+    "DependencyResolver",
+    "DependencyResult",
+    "PythonImportResolver",
+    "include_dirs_from_compile_commands",
+    "resolve_dependencies",
+]

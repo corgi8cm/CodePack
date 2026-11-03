@@ -28,5 +28,9 @@ class XmlFormatter(Formatter):
                 attrs += f" language={quoteattr(f.language)}"
             out.append(f"<file {attrs}>\n{cdata(ensure_trailing_newline(f.content))}\n</file>")
         out.append("</files>")
+        for s in doc.sections:
+            out.append(f"<section title={quoteattr(s.title)}>\n{cdata(ensure_trailing_newline(s.content))}\n</section>")
+        if doc.postscript.strip():
+            out.append(f"<reply_format>\n{escape(doc.postscript.strip())}\n</reply_format>")
         out.append("</project>")
         return "\n".join(out) + "\n"

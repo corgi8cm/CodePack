@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSortFilterProxyModel, Qt, QTimer
+from PySide6.QtCore import QSortFilterProxyModel, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLineEdit,
+    QMenu,
     QPushButton,
     QTreeView,
     QVBoxLayout,
@@ -17,6 +18,9 @@ from codepack.gui.file_tree_model import COL_NAME, COL_TOKENS, PATH_ROLE, FileTr
 
 
 class FileTreePanel(QWidget):
+    depsRequested = Signal(str, bool)
+    """(file, replace): select the file's dependencies."""
+
     def __init__(self, model: FileTreeModel, parent=None):
         super().__init__(parent)
         self.model = model
@@ -65,6 +69,33 @@ class FileTreePanel(QWidget):
         layout.addLayout(buttons)
 
         model.modelReset.connect(self._after_reset)
+
+        self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.view.customContextMenuRequested.connect(self._context_menu)
+
+    def current_path(self) -> str | None:
+        """Path of the highlighted file, or None if nothing / a directory is highlighted."""
+        index = self.view.currentIndex()
+        if not index.isValid():
+            return None
+        rel = self.proxy.data(index, PATH_ROLE)
+        scan = self.model.scan
+        return rel if scan is not None and rel in scan.files else None
+
+    def _context_menu(self, pos) -> None:
+        index = self.view.indexAt(pos)
+        if not index.isValid():
+            return
+        self.view.setCurrentIndex(index)
+        rel = self.current_path()
+        if rel is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("只選取此檔案及其依賴", lambda: self.depsRequested.emit(rel, True))
+        menu.addAction("把此檔案的依賴加入選取", lambda: self.depsRequested.emit(rel, False))
+        menu.addSeparator()
+        menu.addAction("只選取此檔案", lambda: self.model.select_files([rel], replace=True))
+        menu.exec(self.view.viewport().mapToGlobal(pos))
 
     def _apply_filter(self) -> None:
         text = self.search.text().strip()

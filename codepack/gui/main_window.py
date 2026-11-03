@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 )
 
 from codepack.core import (
-    PackOptions,
     PackResult,
     Preset,
     ScanResult,
@@ -31,7 +30,10 @@ from codepack.core import (
     save_preset,
     user_preset_dir,
 )
+from codepack.core.collectors.git import GitError, changed_files
+from codepack.core.deps import resolve_dependencies
 from codepack.core.preset import preset_filename
+from codepack.gui.apply_dialog import ApplyDialog
 from codepack.gui.file_tree_model import FileTreeModel
 from codepack.gui.file_tree_panel import FileTreePanel
 from codepack.gui.labels import format_size
@@ -58,7 +60,6 @@ class MainWindow(QMainWindow):
         self._active_pack_id = -1
         self._pack_after_scan = False
         self._presets: list[Preset] = []
-        self._base_options = PackOptions()
 
         self._build_toolbar()
 
@@ -89,6 +90,10 @@ class MainWindow(QMainWindow):
         self.rules_panel.rulesChanged.connect(self.rescan)
         self.rules_panel.optionsChanged.connect(self._mark_stale)
         self.preview_panel.saveRequested.connect(self.save_output)
+        self.rules_panel.gitSelectRequested.connect(self.select_git_changes)
+        self.rules_panel.depsSelectRequested.connect(self._deps_for_current)
+        self.tree_panel.depsRequested.connect(self.select_dependencies)
+        self.apply_dialog: ApplyDialog | None = None
 
         self._reload_presets(self.settings.value("preset", "default"))
         self._update_status()
@@ -119,6 +124,9 @@ class MainWindow(QMainWindow):
         self.pack_button.setDefault(True)
         self.pack_button.setStyleSheet("font-weight: bold; padding: 4px 16px;")
         self.pack_button.clicked.connect(self.pack)
+        self.apply_button = QPushButton("套用回答…")
+        self.apply_button.setToolTip("把 AI 的回答(完整檔案或 diff)預覽後寫回專案，寫入前自動備份")
+        self.apply_button.clicked.connect(self.open_apply_dialog)
 
         container = QWidget()
         row = QHBoxLayout(container)
@@ -133,6 +141,7 @@ class MainWindow(QMainWindow):
         row.addSpacing(12)
         row.addWidget(self.rescan_button)
         row.addWidget(self.pack_button)
+        row.addWidget(self.apply_button)
         bar.addWidget(container)
 
     def _restore_state(self) -> None:
@@ -167,7 +176,6 @@ class MainWindow(QMainWindow):
             self._apply_preset(self._presets[idx])
 
     def _apply_preset(self, preset: Preset) -> None:
-        self._base_options = preset.options
         self.rules_panel.load_preset(preset)
         self.settings.setValue("preset", preset.name)
 
@@ -177,7 +185,7 @@ class MainWindow(QMainWindow):
             self.rescan()
 
     def current_preset(self, name: str) -> Preset:
-        return Preset(name, self.rules_panel.rules(), self.rules_panel.options(self._base_options))
+        return Preset(name, self.rules_panel.rules(), self.rules_panel.options())
 
     def save_current_preset(self) -> None:
         current = self.preset_combo.currentData() or "my-preset"
@@ -305,7 +313,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "CodePack", "沒有勾選任何檔案。")
             return
         self._job_counter += 1
-        job = PackJob(self._job_counter, scan, files, self.rules_panel.options(self._base_options))
+        job = PackJob(self._job_counter, scan, files, self.rules_panel.options())
         job.signals.finished.connect(self._pack_finished)
         job.signals.failed.connect(self._pack_failed)
         self._active_pack_id = job.job_id
@@ -330,6 +338,66 @@ class MainWindow(QMainWindow):
         self.pack_button.setEnabled(True)
         self.status_message.setText("打包失敗")
         QMessageBox.warning(self, "打包失敗", message)
+
+    # --- selection tools --------------------------------------------------
+
+    def select_git_changes(self) -> None:
+        scan = self.tree_model.scan
+        if scan is None:
+            QMessageBox.information(self, "CodePack", "請先選擇專案資料夾。")
+            return
+        opts = self.rules_panel.options()
+        try:
+            files = changed_files(scan.root, opts.git_base, opts.git_staged)
+        except GitError as exc:
+            QMessageBox.warning(self, "Git", str(exc))
+            return
+        in_scan = [f for f in files if f in scan.files]
+        rejected = self.tree_model.select_files(in_scan, replace=True)
+        msg = f"Git:已選取 {len(in_scan) - len(rejected)} 個變更的檔案"
+        if len(files) > len(in_scan):
+            msg += f"({len(files) - len(in_scan)} 個在被忽略的資料夾內)"
+        self.status_message.setText(msg)
+        if not in_scan:
+            QMessageBox.information(self, "Git", "沒有找到變更的檔案。")
+
+    def _deps_for_current(self, replace: bool) -> None:
+        rel = self.tree_panel.current_path()
+        if rel is None:
+            QMessageBox.information(self, "依賴追蹤", "請先在左側檔案樹點選一個檔案。")
+            return
+        self.select_dependencies(rel, replace)
+
+    def select_dependencies(self, rel: str, replace: bool) -> None:
+        scan = self.tree_model.scan
+        if scan is None:
+            return
+        self.setCursor(Qt.CursorShape.WaitCursor)
+        try:
+            result = resolve_dependencies(scan, [rel], self.rules_panel.dep_options())
+        finally:
+            self.unsetCursor()
+        rejected = self.tree_model.select_files(result.files, replace=replace)
+        msg = f"依賴:{rel} → {len(result.files) - len(rejected)} 個檔案"
+        if result.skipped:
+            msg += f",{len(result.skipped)} 個被規則排除未加入"
+        self.status_message.setText(msg)
+        if result.skipped:
+            self.status_message.setToolTip("被排除的依賴:\n" + "\n".join(sorted(result.skipped)))
+
+    # --- apply back ------------------------------------------------------
+
+    def open_apply_dialog(self) -> None:
+        root = self.project_root()
+        if root is None or not root.is_dir():
+            QMessageBox.information(self, "CodePack", "請先選擇專案資料夾。")
+            return
+        if self.apply_dialog is None or self.apply_dialog.root != root:
+            self.apply_dialog = ApplyDialog(root, self)
+            self.apply_dialog.applied.connect(self.rescan)
+        self.apply_dialog.show()
+        self.apply_dialog.raise_()
+        self.apply_dialog.activateWindow()
 
     def save_output(self) -> None:
         result = self.preview_panel.result

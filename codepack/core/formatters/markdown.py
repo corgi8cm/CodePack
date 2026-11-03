@@ -32,4 +32,9 @@ class MarkdownFormatter(Formatter):
             out.append(
                 f"### `{f.rel_path}`\n\n{fence}{f.language}\n{ensure_trailing_newline(f.content)}{fence}\n"
             )
+        for s in doc.sections:
+            fence = fence_for(s.content)
+            out.append(f"## {s.title}\n\n{fence}{s.language}\n{ensure_trailing_newline(s.content)}{fence}\n")
+        if doc.postscript.strip():
+            out.append(doc.postscript.strip() + "\n")
         return "\n".join(out)

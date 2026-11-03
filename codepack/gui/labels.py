@@ -15,6 +15,23 @@ REASON_LABELS = {
 
 FORMAT_LABELS = {"markdown": "Markdown", "xml": "XML", "plain": "純文字"}
 
+SECRET_LABELS = {
+    "private_key": "私鑰",
+    "aws_access_key": "AWS 金鑰",
+    "google_api_key": "Google API key",
+    "github_token": "GitHub token",
+    "slack_token": "Slack token",
+    "anthropic_key": "Anthropic API key",
+    "openai_key": "OpenAI API key",
+    "jwt": "JWT",
+    "url_password": "連線字串密碼",
+    "conn_password": "連線字串密碼",
+    "password": "密碼/金鑰",
+    "private_ip": "內部 IP",
+}
+
+CHANGE_LABELS = {"create": "新增", "modify": "修改", "delete": "刪除"}
+
 
 def format_size(size: int) -> str:
     value = float(size)

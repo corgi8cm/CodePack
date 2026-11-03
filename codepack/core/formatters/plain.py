@@ -18,4 +18,8 @@ class PlainFormatter(Formatter):
             out.append(f"{SEPARATOR}\nDirectory Structure\n{SEPARATOR}\n{ensure_trailing_newline(doc.tree)}")
         for f in doc.files:
             out.append(f"{SEPARATOR}\nFile: {f.rel_path}\n{SEPARATOR}\n{ensure_trailing_newline(f.content)}")
+        for s in doc.sections:
+            out.append(f"{SEPARATOR}\n{s.title}\n{SEPARATOR}\n{ensure_trailing_newline(s.content)}")
+        if doc.postscript.strip():
+            out.append(f"{SEPARATOR}\n{doc.postscript.strip()}\n")
         return "\n".join(out)
