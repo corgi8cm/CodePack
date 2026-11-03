@@ -52,6 +52,18 @@ codepack backups path/to/project
 codepack restore path/to/project
 ```
 
+## 建置 Windows 執行檔
+```bash
+pip install -e .[build]
+python packaging/build.py
+```
+產出在 `dist/`:
+- `CodePack.exe`:GUI,雙擊即可使用(約 34 MB)
+- `codepack-cli.exe`:命令列版(約 7 MB),用法同上面的 `codepack` 指令
+
+兩者都是單一檔案，可直接複製到沒有安裝 Python 的電腦使用。建置腳本會檢查 exe 內沒有任何 Qt 網路相關的 DLL。
+單檔 exe 啟動時要先解壓到暫存資料夾，第一次開啟會慢幾秒;少數防毒軟體可能誤判未簽章的 PyInstaller 執行檔。
+
 ## 開發
 ```bash
 pytest

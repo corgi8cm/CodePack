@@ -37,6 +37,9 @@ from codepack.core.deps import DepOptions, resolve_dependencies
 from codepack.core.reader import read_text
 from codepack.core.scanners.secrets import SecretMasker
 
+# Inside the PyInstaller build the console program is codepack-cli.exe.
+PROG = "codepack-cli" if getattr(sys, "frozen", False) else "codepack"
+
 
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("directory", type=Path, help="project directory")
@@ -66,7 +69,7 @@ def _add_git_options(p: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="codepack", description="Pack a project into one text file for AI chat.")
+    parser = argparse.ArgumentParser(prog=PROG, description="Pack a project into one text file for AI chat.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -360,7 +363,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
         _err(f"warning: {w}")
     _err(f"applied: {len(result.written)} written, {len(result.deleted)} deleted")
     if result.backup:
-        _err(f"backup: {result.backup.id}  (undo with: codepack restore {args.directory} {result.backup.id})")
+        _err(f"backup: {result.backup.id}  (undo with: {PROG} restore {args.directory} {result.backup.id})")
     return 0
 
 

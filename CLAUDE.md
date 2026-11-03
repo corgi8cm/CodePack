@@ -76,6 +76,14 @@ GUI 測試用 pytest-qt,`tests/gui/conftest.py` 設定 `QT_QPA_PLATFORM=offscree
 - `.git/`、`.codepack/` 一律跳過。被忽略的目錄不往下掃描,以單一 `DirEntry(pruned=...)` 呈現。
 - 被排除的檔案仍出現在 `ScanResult` 中(GUI 顯示灰色),使用者可手動勾選強制納入,但 `BINARY` 不可勾選。勾選資料夾時不會連帶勾選被排除的檔案。
 
+## 打包 exe(PyInstaller)
+- `python packaging/build.py` → `dist/CodePack.exe`(windowed GUI)與 `dist/codepack-cli.exe`(console,不含 Qt)。設定在 `codepack.spec`,入口在 `packaging/*_entry.py`。
+- 工作目錄放系統暫存資料夾(專案在 OneDrive 時 `build/` 會被鎖住導致 `--clean` 失敗)。
+- 離線保證：spec 排除 QtNetwork/QML/WebEngine 等模組，並從 binaries 移除會拉進 Qt6Network 的外掛(`imageformats/qpdf`、`qtuiotouchplugin`)。`build.py` 建置後用 pefile 檢查，任何 DLL 是或匯入 `Qt6Network.dll` 就失敗。新增 Qt 模組時要重新跑建置確認。
+- 新增執行期需要的資料檔時，要同時加到 `pyproject.toml` 的 package-data 與 spec 的 datas。
+- 圖示 `codepack/gui/codepack.ico` 由 `packaging/make_icon.py` 產生。
+- 凍結狀態下 CLI 的程式名是 `codepack-cli`(`cli.PROG`)。
+
 ## 預留擴充(尚未實作)
 - `DependencyResolver` 的 g++ -MM / MSVC /showIncludes 實作。
 - `PackOptions.max_tokens_per_part` 自動分段、`core/transforms/`(移除註解)。

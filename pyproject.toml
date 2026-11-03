@@ -34,6 +34,7 @@ include = ["codepack*"]
 
 [tool.setuptools.package-data]
 "codepack.core" = ["presets/*.json"]
+"codepack.gui" = ["*.ico"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
