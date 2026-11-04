@@ -277,3 +277,72 @@ def test_apply_dialog_from_main_window(window, qtbot, sample_project):
     assert window.apply_dialog is not None and window.apply_dialog.isVisible()
     assert window.apply_dialog.root == sample_project.resolve()
     window.apply_dialog.close()
+
+
+# --- question templates ----------------------------------------------------------
+
+from codepack.core.prompts import builtin_templates, find_template, set_template
+from codepack.gui.prompt_dialog import PromptTemplateDialog
+
+
+def test_prompt_button_copies_default_then_last_used(window):
+    first = builtin_templates()[0]
+    assert window.current_prompt_name() == first.name
+    window.prompt_button.click()
+    assert QGuiApplication.clipboard().text() == first.text
+    assert "已複製" in window.status_message.text()
+
+    window._rebuild_prompt_menu()
+    actions = [a for a in window.prompt_menu.actions() if a.text()]
+    assert actions[-1].text() == "管理模板…"
+    review = next(a for a in actions if a.text() == "Code review")
+    review.trigger()
+    assert "審查" in QGuiApplication.clipboard().text()
+    assert window.current_prompt_name() == "Code review"
+    QGuiApplication.clipboard().clear()
+    window.prompt_button.click()  # now copies the last used one
+    assert "審查" in QGuiApplication.clipboard().text()
+    assert "Code review" in window.prompt_button.toolTip()
+
+
+def test_prompt_dialog_edit_add_delete(qtbot, tmp_path, monkeypatch):
+    path = tmp_path / "prompts.json"
+    dialog = PromptTemplateDialog(path=path, select="Code review")
+    qtbot.addWidget(dialog)
+    assert dialog.current().name == "Code review"
+    assert not dialog.delete_button.isEnabled() and not dialog.save_button.isEnabled()
+
+    # edit a built-in -> stored as override -> restore default
+    dialog.text_edit.setPlainText("我的 review 模板\n")
+    assert dialog.save_button.isEnabled()
+    with qtbot.waitSignal(dialog.templatesChanged):
+        dialog.save()
+    assert find_template("Code review", path).text == "我的 review 模板\n"
+    assert dialog.list.currentItem().text() == "Code review(已修改)"
+    assert dialog.delete_button.text() == "還原預設"
+    monkeypatch.setattr("codepack.gui.prompt_dialog.QMessageBox.question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    dialog.delete()
+    assert find_template("Code review", path).source == "builtin"
+
+    # add, copy, delete a user template
+    monkeypatch.setattr("codepack.gui.prompt_dialog.QInputDialog.getText", lambda *a, **k: ("效能", True))
+    dialog.new_template()
+    assert dialog.current().name == "效能" and dialog.current().source == "user"
+    dialog.text_edit.setPlainText("請找效能瓶頸\n")
+    dialog.save()
+    with qtbot.waitSignal(dialog.copied):
+        dialog.copy()
+    assert QGuiApplication.clipboard().text() == "請找效能瓶頸\n"
+    dialog.delete()
+    with pytest.raises(KeyError):
+        find_template("效能", path)
+
+
+def test_prompt_dialog_from_main_window(window):
+    set_template("自訂模板", "hi\n")
+    window.open_prompt_dialog()
+    dialog = window.prompt_dialog
+    assert dialog.isVisible()
+    assert "自訂模板" in [dialog.list.item(i).data(Qt.ItemDataRole.UserRole + 1) for i in range(dialog.list.count())]
+    dialog.close()

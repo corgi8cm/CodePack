@@ -14,6 +14,7 @@
 - **只送 git 變更**:只選變更的檔案，可附上 `git diff`(與 HEAD、某個分支或只看 staged 比較)
 - **機密遮罩**(預設開啟):API key、密碼、私鑰、JWT、連線字串、內部 IP 換成 `<REDACTED:…>` 佔位符
 - 可要求 AI 用固定格式回答，方便之後套用
+- **提問模板**:一鍵複製常用的提問開頭(完整檔案格式、diff 格式、只問問題、除錯、Code review、解釋程式碼),貼到 Gemini 後再改成你的問題;模板可編輯、可新增
 
 **套用回答(回程)**
 - 支援兩種格式:`=== FILE: path ===` 包住完整檔案，或 unified diff(行號不準也能靠上下文對上)
@@ -37,6 +38,7 @@ codepack-gui
 ```
 - 依賴：在檔案樹對檔案按右鍵 →「只選取此檔案及其依賴」
 - Git:中欄「選取工具」→「只選取 git 變更的檔案」
+- 提問模板：工具列「複製提問模板」直接複製上次用的模板，按旁邊的 ▾ 選其他模板或「管理模板…」
 - 套用：工具列「套用回答…」
 
 CLI:
@@ -46,6 +48,8 @@ codepack pack path/to/project --deps src/main.cpp --reply-format files --copy
 codepack pack path/to/project --git-changed --git-base main --git-diff
 codepack deps path/to/project src/main.cpp
 codepack secrets path/to/project
+codepack prompt
+codepack prompt "修改程式(完整檔案格式)" --copy
 codepack apply path/to/project reply.md --dry-run --diff
 codepack apply path/to/project reply.md
 codepack backups path/to/project

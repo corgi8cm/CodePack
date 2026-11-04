@@ -14,11 +14,14 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QMenu,
     QPushButton,
     QSplitter,
     QToolBar,
+    QToolButton,
     QWidget,
 )
+from PySide6.QtGui import QGuiApplication
 
 from codepack.core import (
     PackResult,
@@ -33,11 +36,13 @@ from codepack.core import (
 from codepack.core.collectors.git import GitError, changed_files
 from codepack.core.deps import resolve_dependencies
 from codepack.core.preset import preset_filename
+from codepack.core.prompts import all_templates, find_template
 from codepack.gui.apply_dialog import ApplyDialog
 from codepack.gui.file_tree_model import FileTreeModel
 from codepack.gui.file_tree_panel import FileTreePanel
 from codepack.gui.labels import format_size
 from codepack.gui.preview_panel import PreviewPanel
+from codepack.gui.prompt_dialog import PromptTemplateDialog
 from codepack.gui.rules_panel import RulesPanel
 from codepack.gui.workers import PackJob, ScanJob
 
@@ -128,6 +133,16 @@ class MainWindow(QMainWindow):
         self.apply_button.setToolTip("把 AI 的回答(完整檔案或 diff)預覽後寫回專案，寫入前自動備份")
         self.apply_button.clicked.connect(self.open_apply_dialog)
 
+        # Button copies the last used template; its arrow menu lists all of them.
+        self.prompt_button = QToolButton()
+        self.prompt_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.prompt_button.setText("複製提問模板")
+        self.prompt_button.clicked.connect(lambda: self.copy_prompt(self.current_prompt_name()))
+        self.prompt_menu = QMenu(self.prompt_button)
+        self.prompt_menu.aboutToShow.connect(self._rebuild_prompt_menu)
+        self.prompt_button.setMenu(self.prompt_menu)
+        self.prompt_dialog: PromptTemplateDialog | None = None
+
         container = QWidget()
         row = QHBoxLayout(container)
         row.setContentsMargins(4, 2, 4, 2)
@@ -141,8 +156,10 @@ class MainWindow(QMainWindow):
         row.addSpacing(12)
         row.addWidget(self.rescan_button)
         row.addWidget(self.pack_button)
+        row.addWidget(self.prompt_button)
         row.addWidget(self.apply_button)
         bar.addWidget(container)
+        self._update_prompt_tooltip()
 
     def _restore_state(self) -> None:
         geometry = self.settings.value("geometry")
@@ -384,6 +401,56 @@ class MainWindow(QMainWindow):
         self.status_message.setText(msg)
         if result.skipped:
             self.status_message.setToolTip("被排除的依賴:\n" + "\n".join(sorted(result.skipped)))
+
+    # --- question templates ---------------------------------------------
+
+    def current_prompt_name(self) -> str:
+        names = [t.name for t in all_templates()]
+        saved = self.settings.value("prompt_template", "")
+        return saved if saved in names else (names[0] if names else "")
+
+    def _update_prompt_tooltip(self) -> None:
+        self.prompt_button.setToolTip(
+            f"複製「{self.current_prompt_name()}」到剪貼簿，貼到 Gemini 後修改問題\n按右邊的 ▾ 可以選其他模板或編輯"
+        )
+
+    def _rebuild_prompt_menu(self) -> None:
+        self.prompt_menu.clear()
+        current = self.current_prompt_name()
+        for t in all_templates():
+            action = self.prompt_menu.addAction(t.name, lambda name=t.name: self.copy_prompt(name))
+            action.setCheckable(True)
+            action.setChecked(t.name == current)
+            action.setToolTip(t.text)
+        self.prompt_menu.setToolTipsVisible(True)
+        self.prompt_menu.addSeparator()
+        self.prompt_menu.addAction("管理模板…", self.open_prompt_dialog)
+
+    def copy_prompt(self, name: str) -> None:
+        try:
+            template = find_template(name)
+        except KeyError:
+            return
+        QGuiApplication.clipboard().setText(template.text)
+        self.settings.setValue("prompt_template", template.name)
+        self._update_prompt_tooltip()
+        self.status_message.setText(f"已複製提問模板「{template.name}」,貼到 Gemini 後把問題改成你的內容")
+
+    def open_prompt_dialog(self) -> None:
+        if self.prompt_dialog is None:
+            self.prompt_dialog = PromptTemplateDialog(select=self.current_prompt_name(), parent=self)
+            self.prompt_dialog.copied.connect(self._prompt_copied_in_dialog)
+            self.prompt_dialog.templatesChanged.connect(self._update_prompt_tooltip)
+        else:
+            self.prompt_dialog.reload(self.current_prompt_name())
+        self.prompt_dialog.show()
+        self.prompt_dialog.raise_()
+        self.prompt_dialog.activateWindow()
+
+    def _prompt_copied_in_dialog(self, name: str) -> None:
+        self.settings.setValue("prompt_template", name)
+        self._update_prompt_tooltip()
+        self.status_message.setText(f"已複製提問模板「{name}」")
 
     # --- apply back ------------------------------------------------------
 

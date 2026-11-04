@@ -251,3 +251,33 @@ def test_apply_nothing_and_errors(capsys, sample_project, tmp_path):
     assert code == 1 and "nothing to apply" in err
     code, _, err = run(capsys, "restore", str(sample_project), "-y")
     assert code == 2 and "no backups" in err
+
+
+# --- question templates ----------------------------------------------------------
+
+def test_prompt_list_print_copy(capsys, monkeypatch):
+    code, out, _ = run(capsys, "prompt")
+    assert code == 0
+    assert "修改程式(完整檔案格式)  [built-in]" in out
+
+    code, out, _ = run(capsys, "prompt", "修改程式(完整檔案格式)")
+    assert code == 0
+    assert "=== FILE: 相對路徑 ===" in out and out.rstrip().endswith("我想問:")
+
+    copied = []
+    monkeypatch.setattr("codepack.clipboard.copy_text", copied.append)
+    code, out, err = run(capsys, "prompt", "只問問題(不改程式)", "--copy")
+    assert code == 0 and out == "" and "copied" in err
+    assert copied and "不需要修改程式" in copied[0]
+
+    code, _, err = run(capsys, "prompt", "沒有這個")
+    assert code == 2 and "not found" in err
+
+
+def test_prompt_lists_user_templates(capsys):
+    from codepack.core.prompts import set_template
+
+    set_template("我的模板", "hello\n")
+    set_template("Code review", "edited\n")
+    code, out, _ = run(capsys, "prompt")
+    assert "我的模板  [user]" in out and "Code review  [built-in, edited]" in out

@@ -38,6 +38,7 @@ scan_project ─▶ ScanResult ─▶ (Collector) ─▶ (Transforms) ─▶ For
 | `core/scanners/secrets.py` | `SecretMasker`:API key / 密碼 / 私鑰 / JWT / 連線字串 / 內部 IP → `<REDACTED:kind:hmac8>`;`unmask()` |
 | `core/deps/` | `resolve_dependencies()` + `DependencyResolver` 協定;`PythonImportResolver`(ast)、`CppIncludeResolver`(自寫 #include 解析 + `compile_commands.json`) |
 | `core/collectors/git.py` | `changed_files()`、`git_diff_text()`(只呼叫本機 `git`) |
+| `core/prompts.py` | 提問模板：內建模板 + 使用者模板(`user_config_dir()/prompts.json`,同名覆蓋內建);完整檔案範例沿用 `apply.formats` 的標記，測試確保範例可被 `parse_reply` 解析 |
 | `core/apply/` | 回程:`formats`(要求 AI 的回答格式)、`parser`(FILE 區塊 / unified diff)、`patch`(容錯套用 hunk)、`planner`(`plan_changes` / `apply_plan`)、`backup`(備份與還原) |
 
 ### 機密遮罩
@@ -66,6 +67,7 @@ CLI 剪貼簿使用 `codepack/clipboard.py`(Windows 走 ctypes Win32 API,Linux �
 | `file_tree_panel.py` | 搜尋(`QSortFilterProxyModel` 遞迴過濾)+ 樹狀檢視 |
 | `rules_panel.py` | 分頁：過濾規則 / 輸出選項 / 選取工具(git、依賴);規則變更 debounce 後觸發重新掃描 |
 | `preview_panel.py` | 預覽、token 上限進度條、遮罩數量、複製/另存 |
+| `prompt_dialog.py` | 提問模板的檢視/編輯/新增/刪除(內建模板可修改或還原預設);工具列「複製提問模板」按鈕複製上次用的模板(記在 QSettings `prompt_template`) |
 | `apply_dialog.py` | 貼上 AI 回答 → 變更清單 + diff 預覽 → 勾選套用(備份)→ 還原 |
 | `workers.py` | `ScanJob` / `PackJob`(QRunnable),以 job id 丟棄過期結果 |
 

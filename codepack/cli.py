@@ -128,6 +128,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-y", "--yes", action="store_true", help="restore without asking")
 
     sub.add_parser("presets", help="list available presets")
+
+    p = sub.add_parser("prompt", help="list question templates, or print/copy one")
+    p.add_argument("name", nargs="?", help="template name (omit to list them)")
+    p.add_argument("-c", "--copy", action="store_true", help="copy the template to the clipboard")
     return parser
 
 
@@ -398,12 +402,37 @@ def _cmd_presets() -> int:
     return 0
 
 
+def _cmd_prompt(args: argparse.Namespace) -> int:
+    from codepack.core.prompts import all_templates, find_template
+
+    if not args.name:
+        tags = {"builtin": "built-in", "override": "built-in, edited", "user": "user"}
+        for t in all_templates():
+            print(f"{t.name}  [{tags[t.source]}]")
+        return 0
+    template = find_template(args.name)
+    if args.copy:
+        from codepack.clipboard import ClipboardError, copy_text
+
+        try:
+            copy_text(template.text)
+        except ClipboardError as exc:
+            _err(f"error: {exc}")
+            return 1
+        _err(f"copied template {template.name!r} to the clipboard")
+    else:
+        sys.stdout.write(template.text)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     _ensure_utf8_output()
     args = build_parser().parse_args(argv)
     try:
         if args.command == "presets":
             return _cmd_presets()
+        if args.command == "prompt":
+            return _cmd_prompt(args)
         if args.command == "apply":
             return _cmd_apply(args)
         if args.command == "backups":
