@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import QMessageBox
 
 from codepack.core import ExcludeReason, Selection, load_preset, scan_project
 from codepack.gui.file_tree_model import COL_TOKENS, FileTreeModel
@@ -68,7 +69,7 @@ def test_model_token_column(model):
 @pytest.fixture
 def window(qtbot, tmp_path: Path):
     settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
-    w = MainWindow(settings=settings, preset_dir=tmp_path / "presets")
+    w = MainWindow(settings=settings, preset_dir=tmp_path / "presets", projects_file=tmp_path / "projects.json")
     qtbot.addWidget(w)
     return w
 
@@ -153,8 +154,6 @@ def test_save_output(window, qtbot, sample_project, monkeypatch, tmp_path):
 
 import shutil
 import subprocess
-
-from PySide6.QtWidgets import QMessageBox
 
 from codepack.core import PackOptions, Preset, RuleSet
 from codepack.gui.apply_dialog import ApplyDialog
@@ -346,3 +345,74 @@ def test_prompt_dialog_from_main_window(window):
     assert dialog.isVisible()
     assert "自訂模板" in [dialog.list.item(i).data(Qt.ItemDataRole.UserRole + 1) for i in range(dialog.list.count())]
     dialog.close()
+
+
+# --- project list -----------------------------------------------------------
+
+def test_switch_projects_keeps_each_projects_state(window, qtbot, sample_project, make_project):
+    other = make_project({"app.py": "print(1)\n", "lib/util.py": "x = 1\n"}, name="other")
+    _open(window, qtbot, sample_project)
+    window.tree_model.set_checked("src/util.h", False)
+    window.tree_model.set_checked("debug.log", True)  # force an excluded file
+    window.rules_panel.format_combo.setCurrentIndex(window.rules_panel.format_combo.findData("xml"))
+
+    _open(window, qtbot, other)
+    qtbot.waitUntil(lambda: window.tree_model.scan is not None and window.tree_model.scan.root.name == "other", timeout=10_000)
+    assert [window.project_combo.itemText(i) for i in range(window.project_combo.count())] == ["proj", "other"]
+    assert window.project_combo.currentIndex() == 1
+    assert window.windowTitle() == "other - CodePack"
+    assert window.tree_model.selection.checked_files() == ["app.py", "lib/util.py"]
+    window.rules_panel.format_combo.setCurrentIndex(window.rules_panel.format_combo.findData("plain"))
+
+    window._project_selected(0)  # back to the first project via the combo
+    qtbot.waitUntil(lambda: window.tree_model.scan is not None and window.tree_model.scan.root.name == "proj", timeout=10_000)
+    checked = window.tree_model.selection.checked_files()
+    assert "src/util.h" not in checked and "debug.log" in checked
+    assert window.rules_panel.options().format == "xml"
+    assert window.project_root() == sample_project.resolve()
+
+
+def test_project_list_survives_restart(qtbot, tmp_path, sample_project, make_project):
+    other = make_project({"a.py": "x = 1\n"}, name="other")
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    kwargs = dict(settings=settings, preset_dir=tmp_path / "presets", projects_file=tmp_path / "projects.json")
+    w1 = MainWindow(**kwargs)
+    qtbot.addWidget(w1)
+    _open(w1, qtbot, sample_project)
+    w1.tree_model.set_checked("src/util.h", False)
+    _open(w1, qtbot, other)
+    qtbot.waitUntil(lambda: w1.tree_model.scan is not None and w1.tree_model.scan.root.name == "other", timeout=10_000)
+    w1._project_selected(0)
+    qtbot.waitUntil(lambda: w1.tree_model.scan is not None and w1.tree_model.scan.root.name == "proj", timeout=10_000)
+    w1.close()
+
+    w2 = MainWindow(**kwargs)
+    qtbot.addWidget(w2)
+    assert w2.project_combo.count() == 2
+    qtbot.waitUntil(lambda: w2.tree_model.scan is not None, timeout=10_000)
+    assert w2.project_root() == sample_project.resolve()
+    assert "src/util.h" not in w2.tree_model.selection.checked_files()
+
+
+def test_old_last_project_setting_is_migrated(qtbot, tmp_path, sample_project):
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    settings.setValue("last_project", str(sample_project))
+    w = MainWindow(settings=settings, preset_dir=tmp_path / "presets", projects_file=tmp_path / "projects.json")
+    qtbot.addWidget(w)
+    assert w.project_combo.count() == 1
+    qtbot.waitUntil(lambda: w.tree_model.scan is not None, timeout=10_000)
+
+
+def test_rename_and_remove_project(window, qtbot, sample_project, monkeypatch):
+    _open(window, qtbot, sample_project)
+    monkeypatch.setattr("codepack.gui.main_window.QInputDialog.getText", lambda *a, **k: ("引擎", True))
+    window.rename_current_project()
+    assert window.project_combo.itemText(0) == "引擎"
+    assert window.windowTitle() == "引擎 - CodePack"
+    monkeypatch.setattr(
+        "codepack.gui.main_window.QMessageBox.question", lambda *a, **k: QMessageBox.StandardButton.Yes
+    )
+    window.remove_current_project()
+    assert window.project_combo.count() == 0
+    assert window.project_root() is None and window.tree_model.scan is None
+    assert sample_project.is_dir()  # only removed from the list

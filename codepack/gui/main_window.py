@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
-    QLineEdit,
     QMainWindow,
     QMessageBox,
     QMenu,
@@ -24,8 +23,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QGuiApplication
 
 from codepack.core import (
+    PackOptions,
     PackResult,
     Preset,
+    RuleSet,
     ScanResult,
     Selection,
     all_presets,
@@ -36,6 +37,7 @@ from codepack.core import (
 from codepack.core.collectors.git import GitError, changed_files
 from codepack.core.deps import resolve_dependencies
 from codepack.core.preset import preset_filename
+from codepack.core.projects import ProjectList, load_projects, normalize_path, save_projects
 from codepack.core.prompts import all_templates, find_template
 from codepack.gui.apply_dialog import ApplyDialog
 from codepack.gui.file_tree_model import FileTreeModel
@@ -51,12 +53,21 @@ SETTINGS_APP = "CodePack"
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, settings: QSettings | None = None, preset_dir: Path | None = None):
+    def __init__(
+        self,
+        settings: QSettings | None = None,
+        preset_dir: Path | None = None,
+        projects_file: Path | None = None,
+    ):
         super().__init__()
         self.setWindowTitle("CodePack")
         self.resize(1400, 850)
         self.settings = settings or QSettings(SETTINGS_ORG, SETTINGS_APP)
         self.preset_dir = preset_dir or user_preset_dir()
+        self.projects_file = projects_file
+        self.projects: ProjectList = load_projects(projects_file)
+        self._root: Path | None = None
+        self._pending_overrides: tuple[str, list[str], list[str]] | None = None
         self.pool = QThreadPool.globalInstance()
 
         self._scan_job: ScanJob | None = None
@@ -111,11 +122,22 @@ class MainWindow(QMainWindow):
         bar.setMovable(False)
         self.addToolBar(bar)
 
-        self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText("專案資料夾路徑")
-        self.path_edit.returnPressed.connect(self._path_entered)
-        browse = QPushButton("瀏覽…")
+        # Project list: switch between several project folders; each one
+        # remembers its own preset, rules and checked files.
+        self.project_combo = QComboBox()
+        self.project_combo.setMinimumWidth(220)
+        self.project_combo.setPlaceholderText("尚未加入專案")
+        self.project_combo.activated.connect(self._project_selected)
+        browse = QPushButton("加入專案…")
+        browse.setToolTip("選一個資料夾加入專案清單並切換過去")
         browse.clicked.connect(self.browse)
+        self.project_menu_button = QToolButton()
+        self.project_menu_button.setText("⋯")
+        self.project_menu_button.setToolTip("管理專案清單")
+        self.project_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.project_menu = QMenu(self.project_menu_button)
+        self.project_menu.aboutToShow.connect(self._rebuild_project_menu)
+        self.project_menu_button.setMenu(self.project_menu)
 
         self.preset_combo = QComboBox()
         self.preset_combo.setMinimumWidth(140)
@@ -147,8 +169,9 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(container)
         row.setContentsMargins(4, 2, 4, 2)
         row.addWidget(QLabel("專案"))
-        row.addWidget(self.path_edit, 1)
+        row.addWidget(self.project_combo, 1)
         row.addWidget(browse)
+        row.addWidget(self.project_menu_button)
         row.addSpacing(12)
         row.addWidget(QLabel("設定檔"))
         row.addWidget(self.preset_combo)
@@ -169,12 +192,19 @@ class MainWindow(QMainWindow):
         if sizes is not None:
             self.splitter.restoreState(sizes)
         last = self.settings.value("last_project", "")
-        if last and Path(last).is_dir():
-            self.open_project(Path(last))
+        if not self.projects.projects and last and Path(last).is_dir():
+            self.projects.add(last)  # carry over the single project of older versions
+            self.projects.current = normalize_path(last)
+        self._refresh_project_combo()
+        current = self.projects.current_entry()
+        if current is not None and Path(current.path).is_dir():
+            self.open_project(Path(current.path))
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("splitter", self.splitter.saveState())
+        self._store_project_state()
+        self._save_projects()
         if self._scan_job is not None:
             self._scan_job.cancel()
         super().closeEvent(event)
@@ -221,30 +251,163 @@ class MainWindow(QMainWindow):
 
     # --- project & scanning -----------------------------------------------
 
+    # --- project list -----------------------------------------------------
+
     def browse(self) -> None:
-        start = self.path_edit.text() or self.settings.value("last_project", "")
-        folder = QFileDialog.getExistingDirectory(self, "選擇專案資料夾", start)
+        start = str(self._root.parent) if self._root else self.settings.value("last_project", "")
+        folder = QFileDialog.getExistingDirectory(self, "加入專案資料夾", start)
         if folder:
             self.open_project(Path(folder))
 
-    def _path_entered(self) -> None:
-        path = Path(self.path_edit.text().strip())
-        if path.is_dir():
-            self.open_project(path)
-        else:
-            QMessageBox.warning(self, "找不到資料夾", f"不是有效的資料夾:\n{path}")
+    def _save_projects(self) -> None:
+        try:
+            save_projects(self.projects, self.projects_file)
+        except OSError as exc:
+            self.status_message.setText(f"無法儲存專案清單:{exc}")
 
-    def open_project(self, path: Path) -> None:
-        path = path.resolve()
-        self.path_edit.setText(str(path))
-        self.settings.setValue("last_project", str(path))
+    def _refresh_project_combo(self) -> None:
+        self.project_combo.blockSignals(True)
+        self.project_combo.clear()
+        for p in self.projects.projects:
+            self.project_combo.addItem(p.display_name, p.path)
+            self.project_combo.setItemData(self.project_combo.count() - 1, p.path, Qt.ItemDataRole.ToolTipRole)
+        current = self.projects.current_entry()
+        self.project_combo.setCurrentIndex(self.projects.projects.index(current) if current else -1)
+        self.project_combo.setToolTip(current.path if current else "")
+        self.project_combo.blockSignals(False)
+
+    def _project_selected(self, index: int) -> None:
+        path = self.project_combo.itemData(index)
+        if not path:
+            return
+        if self._root is not None and normalize_path(self._root) == normalize_path(path):
+            return
+        if not Path(path).is_dir():
+            answer = QMessageBox.question(
+                self, "找不到資料夾", f"資料夾已不存在:\n{path}\n\n要把它從專案清單移除嗎?"
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self.projects.remove(path)
+                self._save_projects()
+            self._refresh_project_combo()
+            return
+        self.open_project(Path(path))
+
+    def _rebuild_project_menu(self) -> None:
+        menu = self.project_menu
+        menu.clear()
+        current = self.projects.current_entry()
+        for label, slot in (
+            ("重新命名…", self.rename_current_project),
+            ("往上移", lambda: self._move_current_project(-1)),
+            ("往下移", lambda: self._move_current_project(1)),
+            ("從清單移除", self.remove_current_project),
+        ):
+            menu.addAction(label, slot).setEnabled(current is not None)
+
+    def rename_current_project(self) -> None:
+        entry = self.projects.current_entry()
+        if entry is None:
+            return
+        name, ok = QInputDialog.getText(self, "重新命名專案", "顯示名稱(留空 = 資料夾名稱):", text=entry.name)
+        if not ok:
+            return
+        entry.name = name.strip()
+        self._save_projects()
+        self._refresh_project_combo()
+        self._update_title()
+
+    def _move_current_project(self, offset: int) -> None:
+        if self.projects.current:
+            self.projects.move(self.projects.current, offset)
+            self._save_projects()
+            self._refresh_project_combo()
+
+    def remove_current_project(self) -> None:
+        """Remove the open project from the list (the folder itself is untouched)."""
+        entry = self.projects.current_entry()
+        if entry is None:
+            return
+        question = f"要把「{entry.display_name}」從專案清單移除嗎?\n(只會移出清單，不會刪除任何檔案)"
+        if QMessageBox.question(self, "專案清單", question) != QMessageBox.StandardButton.Yes:
+            return
+        self.projects.remove(entry.path)
+        self._save_projects()
+        self._close_project()
+        self._refresh_project_combo()
+
+    def _store_project_state(self) -> None:
+        """Remember the open project's preset, rules and check overrides."""
+        if self._root is None:
+            return
+        entry = self.projects.find(self._root)
+        if entry is None:
+            return
+        entry.preset = self.preset_combo.currentData() or ""
+        entry.rules = self.rules_panel.rules().to_dict()
+        entry.options = self.rules_panel.options().to_dict()
+        selection = self.tree_model.selection
+        if selection is not None and normalize_path(selection.scan.root) == normalize_path(self._root):
+            entry.forced_on = sorted(selection.forced_on)
+            entry.forced_off = sorted(selection.forced_off)
+
+    def _restore_project_settings(self, preset_name: str, rules: dict | None, options: dict | None) -> None:
+        preset = next((p for p in self._presets if p.name == preset_name), None)
+        if preset is not None:
+            self.preset_combo.setCurrentIndex(self._presets.index(preset))
+        if rules is not None or options is not None:
+            base = preset or self.current_preset(preset_name)
+            self.rules_panel.load_preset(
+                Preset(
+                    base.name,
+                    RuleSet.from_dict(rules) if rules is not None else base.rules,
+                    PackOptions.from_dict(options) if options is not None else base.options,
+                )
+            )
+        elif preset is not None:
+            self._apply_preset(preset)
+        # Otherwise (a newly added project) keep the settings currently shown.
+
+    def _close_project(self) -> None:
+        if self._scan_job is not None:
+            self._scan_job.cancel()
+            self._scan_job = None
+        self._active_scan_id = -1
+        self._active_pack_id = -1
+        self._pack_after_scan = False
+        self._root = None
+        self.rescan_button.setEnabled(True)
+        self.pack_button.setEnabled(True)
         self.tree_model.set_scan(None, None)
         self.preview_panel.set_result(None)
+        self._update_status()
+        self._update_title()
+
+    def _update_title(self) -> None:
+        entry = self.projects.find(self._root) if self._root else None
+        self.setWindowTitle(f"{entry.display_name} - CodePack" if entry else "CodePack")
+
+    def open_project(self, path: Path) -> None:
+        """Switch to ``path``, adding it to the project list if needed."""
+        path = path.resolve()
+        if self._root is not None and normalize_path(self._root) == normalize_path(path):
+            self.rescan()
+            return
+        self._store_project_state()
+        entry = self.projects.add(path)
+        self.projects.current = entry.path
+        self._save_projects()
+        self.settings.setValue("last_project", str(path))
+        self._close_project()
+        self._root = path
+        self._restore_project_settings(entry.preset, entry.rules, entry.options)
+        self._pending_overrides = (entry.path, list(entry.forced_on), list(entry.forced_off))
+        self._refresh_project_combo()
+        self._update_title()
         self.rescan()
 
     def project_root(self) -> Path | None:
-        text = self.path_edit.text().strip()
-        return Path(text).resolve() if text else None
+        return self._root
 
     def rescan(self) -> None:
         root = self.project_root()
@@ -269,8 +432,11 @@ class MainWindow(QMainWindow):
         self._scan_job = None
         self.rescan_button.setEnabled(True)
         old = self.tree_model.selection
+        pending, self._pending_overrides = self._pending_overrides, None
         if old is not None and old.scan.root == scan.root:
             selection = old.carry_over(scan)
+        elif pending is not None and normalize_path(scan.root) == normalize_path(pending[0]):
+            selection = Selection(scan, pending[1], pending[2])  # restore this project's checks
         else:
             selection = Selection(scan)
         self.tree_model.set_scan(scan, selection)

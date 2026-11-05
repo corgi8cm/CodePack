@@ -35,6 +35,7 @@ scan_project ─▶ ScanResult ─▶ (Collector) ─▶ (Transforms) ─▶ For
 | `core/packer.py` | `PackOptions`、`PackResult`(`parts: list[str]`,為分段預留;`findings` 為遮罩紀錄)、`build_pack()` |
 | `core/preset.py` | `Preset` JSON 讀寫、內建 preset(`core/presets/*.json`)、使用者 preset 目錄 |
 | `core/paths.py` | `user_config_dir()`(preset、遮罩金鑰都放這裡) |
+| `core/projects.py` | 專案清單(`user_config_dir()/projects.json`,GUI 與 CLI 共用):`ProjectList` / `ProjectEntry`,每個專案記住 preset 名稱、編輯過的 rules/options 與勾選覆寫(`forced_on`/`forced_off`);路徑用 `normalize_path()` 當識別，Windows 不分大小寫 |
 | `core/scanners/secrets.py` | `SecretMasker`:API key / 密碼 / 私鑰 / JWT / 連線字串 / 內部 IP → `<REDACTED:kind:hmac8>`;`unmask()` |
 | `core/deps/` | `resolve_dependencies()` + `DependencyResolver` 協定;`PythonImportResolver`(ast)、`CppIncludeResolver`(自寫 #include 解析 + `compile_commands.json`) |
 | `core/collectors/git.py` | `changed_files()`、`git_diff_text()`(只呼叫本機 `git`) |
@@ -62,7 +63,7 @@ CLI 剪貼簿使用 `codepack/clipboard.py`(Windows 走 ctypes Win32 API,Linux �
 | 模組 | 職責 |
 |---|---|
 | `app.py` | `main()` 進入點(`codepack-gui`) |
-| `main_window.py` | 工具列、三欄 QSplitter、狀態列;QSettings 記住上次專案/視窗大小 |
+| `main_window.py` | 工具列、三欄 QSplitter、狀態列;QSettings 記住視窗大小。專案下拉選單切換專案：切換前把目前專案的設定與勾選存回 `ProjectEntry`,切換後還原(勾選在掃描完成時以 `_pending_overrides` 套用);舊版 QSettings `last_project` 會自動併入清單 |
 | `file_tree_model.py` | `FileTreeModel(QAbstractItemModel)`,直接讀 core 的 `ScanResult` + `Selection` |
 | `file_tree_panel.py` | 搜尋(`QSortFilterProxyModel` 遞迴過濾)+ 樹狀檢視 |
 | `rules_panel.py` | 分頁：過濾規則 / 輸出選項 / 選取工具(git、依賴);規則變更 debounce 後觸發重新掃描 |
@@ -71,7 +72,7 @@ CLI 剪貼簿使用 `codepack/clipboard.py`(Windows 走 ctypes Win32 API,Linux �
 | `apply_dialog.py` | 貼上 AI 回答 → 變更清單 + diff 預覽 → 勾選套用(備份)→ 還原 |
 | `workers.py` | `ScanJob` / `PackJob`(QRunnable),以 job id 丟棄過期結果 |
 
-GUI 測試用 pytest-qt,`tests/gui/conftest.py` 設定 `QT_QPA_PLATFORM=offscreen`;MainWindow 測試要傳入暫存的 `QSettings` 與 `preset_dir`,不可寫到使用者真實設定。`tests/conftest.py` 的 autouse fixture 會把 `APPDATA` / `XDG_CONFIG_HOME` 指到暫存目錄(preset 與遮罩金鑰)。
+GUI 測試用 pytest-qt,`tests/gui/conftest.py` 設定 `QT_QPA_PLATFORM=offscreen`;MainWindow 測試要傳入暫存的 `QSettings`、`preset_dir` 與 `projects_file`,不可寫到使用者真實設定。`tests/conftest.py` 的 autouse fixture 會把 `APPDATA` / `XDG_CONFIG_HOME` 指到暫存目錄(preset 與遮罩金鑰)。
 
 ### 規則語意
 - include 為空 = 全部納入;exclude 優先於 include;語法皆為 gitignore 風格(`pathspec.GitIgnoreSpec`)。
@@ -98,5 +99,6 @@ pytest
 python -m codepack pack <dir> -f markdown -o out.md
 python -m codepack pack <dir> --deps src/main.cpp --reply-format files --copy
 python -m codepack apply <dir> reply.md --dry-run
+python -m codepack projects add <dir> --name engine   # 之後 <dir> 可以寫 engine
 codepack-gui
 ```

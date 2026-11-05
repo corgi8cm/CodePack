@@ -8,6 +8,7 @@
 
 ## 功能
 **打包**
+- **多專案**:專案清單一次記住多個專案，用下拉選單切換;每個專案各自記住設定檔、規則與勾選的檔案
 - 可勾選的檔案樹、包含 / 排除規則(gitignore 風格 glob)、自動套用 `.gitignore`、跳過二進位檔
 - 輸出格式:Markdown、XML、純文字，開頭附目錄樹;Token 預估(總量與每個檔案)
 - **依賴追蹤**:選一個目標檔，沿著 Python `import` 與 C++ `#include` 只抓相關檔案(會讀 `compile_commands.json` 的 include 路徑)
@@ -36,6 +37,7 @@ GUI:
 ```bash
 codepack-gui
 ```
+- 專案：工具列「加入專案…」把資料夾加入清單，之後用「專案」下拉選單切換;「⋯」可重新命名、排序或從清單移除(不會刪檔案)
 - 依賴：在檔案樹對檔案按右鍵 →「只選取此檔案及其依賴」
 - Git:中欄「選取工具」→「只選取 git 變更的檔案」
 - 提問模板：工具列「複製提問模板」直接複製上次用的模板，按旁邊的 ▾ 選其他模板或「管理模板…」
@@ -48,6 +50,9 @@ codepack pack path/to/project --deps src/main.cpp --reply-format files --copy
 codepack pack path/to/project --git-changed --git-base main --git-diff
 codepack deps path/to/project src/main.cpp
 codepack secrets path/to/project
+codepack projects add path/to/project --name engine
+codepack projects
+codepack pack engine --copy          # 用專案名稱代替路徑
 codepack prompt
 codepack prompt "修改程式(完整檔案格式)" --copy
 codepack apply path/to/project reply.md --dry-run --diff

@@ -281,3 +281,23 @@ def test_prompt_lists_user_templates(capsys):
     set_template("Code review", "edited\n")
     code, out, _ = run(capsys, "prompt")
     assert "我的模板  [user]" in out and "Code review  [built-in, edited]" in out
+
+
+def test_projects_add_list_remove_and_use_by_name(capsys, sample_project):
+    assert cli.main(["projects"]) == 0
+    assert "no projects yet" in capsys.readouterr().out
+    assert cli.main(["projects", "add", str(sample_project), "--name", "engine"]) == 0
+    assert cli.main(["projects", "list"]) == 0
+    out = capsys.readouterr().out
+    assert "engine" in out and str(sample_project.resolve()) in out
+
+    # Any command taking a directory accepts the project name instead.
+    assert cli.main(["tree", "engine"]) == 0
+    assert "main.cpp" in capsys.readouterr().out
+    assert cli.main(["tree", "nope"]) == 2
+    assert "not a directory or a known project name" in capsys.readouterr().err
+
+    assert cli.main(["projects", "remove", "engine"]) == 0
+    assert sample_project.is_dir()
+    assert cli.main(["projects", "remove", "engine"]) == 2
+    assert cli.main(["projects", "add", str(sample_project / "missing")]) == 2

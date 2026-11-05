@@ -41,8 +41,11 @@ from codepack.core.scanners.secrets import SecretMasker
 PROG = "codepack-cli" if getattr(sys, "frozen", False) else "codepack"
 
 
+_DIR_HELP = "project directory, or a project name from `projects`"
+
+
 def _add_common(p: argparse.ArgumentParser) -> None:
-    p.add_argument("directory", type=Path, help="project directory")
+    p.add_argument("directory", type=Path, help=_DIR_HELP)
     p.add_argument("--preset", default="default", help="preset name or path to a .json preset (default: default)")
     p.add_argument("-i", "--include", action="append", default=[], metavar="GLOB",
                    help="include pattern (gitignore syntax); repeatable")
@@ -111,7 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p)
 
     p = sub.add_parser("apply", help="apply an AI reply (full files or unified diff) to the project")
-    p.add_argument("directory", type=Path, help="project directory")
+    p.add_argument("directory", type=Path, help=_DIR_HELP)
     p.add_argument("reply", nargs="?", default="-", help="file containing the reply, or - for stdin (default)")
     p.add_argument("-n", "--dry-run", action="store_true", help="only show what would change")
     p.add_argument("-y", "--yes", action="store_true", help="apply without asking")
@@ -120,10 +123,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-git-stash", action="store_true", help="do not record a git stash snapshot")
 
     p = sub.add_parser("backups", help="list backups made by `apply`")
-    p.add_argument("directory", type=Path, help="project directory")
+    p.add_argument("directory", type=Path, help=_DIR_HELP)
 
     p = sub.add_parser("restore", help="restore files from a backup (default: the latest)")
-    p.add_argument("directory", type=Path, help="project directory")
+    p.add_argument("directory", type=Path, help=_DIR_HELP)
     p.add_argument("backup_id", nargs="?", help="backup id (see `codepack backups`)")
     p.add_argument("-y", "--yes", action="store_true", help="restore without asking")
 
@@ -132,6 +135,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("prompt", help="list question templates, or print/copy one")
     p.add_argument("name", nargs="?", help="template name (omit to list them)")
     p.add_argument("-c", "--copy", action="store_true", help="copy the template to the clipboard")
+
+    p = sub.add_parser("projects", help="list, add or remove projects in the project list (shared with the GUI)")
+    psub = p.add_subparsers(dest="action")
+    psub.add_parser("list", help="list projects (default)")
+    q = psub.add_parser("add", help="add a project folder")
+    q.add_argument("path", type=Path)
+    q.add_argument("--name", default="", help="display name (default: the folder name)")
+    q = psub.add_parser("remove", help="remove a project from the list (files are not touched)")
+    q.add_argument("project", help="project name or path")
     return parser
 
 
@@ -402,6 +414,47 @@ def _cmd_presets() -> int:
     return 0
 
 
+def _resolve_directory(args: argparse.Namespace) -> None:
+    """Let ``directory`` be a project name from the project list."""
+    from codepack.core.projects import load_projects
+
+    directory = getattr(args, "directory", None)
+    if directory is None or directory.is_dir():
+        return
+    resolved = load_projects().resolve(str(directory))
+    if resolved is None:
+        raise ValueError(f"{directory}: not a directory or a known project name (see `{PROG} projects`)")
+    args.directory = resolved
+
+
+def _cmd_projects(args: argparse.Namespace) -> int:
+    from codepack.core.projects import load_projects, save_projects
+
+    projects = load_projects()
+    if args.action == "add":
+        if not args.path.is_dir():
+            raise ValueError(f"{args.path}: not a directory")
+        entry = projects.add(args.path, args.name.strip())
+        save_projects(projects)
+        print(f"added: {entry.display_name}  {entry.path}")
+        return 0
+    if args.action == "remove":
+        entry = projects.find_by_name(args.project) or projects.find(args.project)
+        if entry is None:
+            raise ValueError(f"{args.project}: not in the project list")
+        projects.remove(entry.path)
+        save_projects(projects)
+        print(f"removed: {entry.display_name}  (files were not touched)")
+        return 0
+    if not projects.projects:
+        print(f"no projects yet; add one with `{PROG} projects add DIR`")
+    current = projects.current_entry()
+    for p in projects.projects:
+        mark = "*" if p is current else " "
+        print(f"{mark} {p.display_name:<20} {p.path}")
+    return 0
+
+
 def _cmd_prompt(args: argparse.Namespace) -> int:
     from codepack.core.prompts import all_templates, find_template
 
@@ -433,6 +486,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_presets()
         if args.command == "prompt":
             return _cmd_prompt(args)
+        if args.command == "projects":
+            return _cmd_projects(args)
+        _resolve_directory(args)
         if args.command == "apply":
             return _cmd_apply(args)
         if args.command == "backups":
