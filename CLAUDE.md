@@ -12,7 +12,8 @@ CodePack 把程式專案(主要是 C++ / Python)打包成單一文字檔,方便�
 3. **跨平台**:Windows(主要)與 Linux。路徑在 core 內部一律以 POSIX 風格的相對路徑字串(`"src/a.cpp"`)表示;只有實際讀檔時才轉成 `Path`。
 4. **設定檔(preset)用 JSON**,帶 `schema_version`,新增欄位要給預設值以相容舊檔。
 5. **測試**:pytest。core 每個模組都要有測試;新增 core 功能必須同時加測試並執行通過。
-6. Python 3.10+;相依只有 `pathspec`、`PySide6`(GUI)。新增相依前要先確認可離線運作且能被 PyInstaller 打包。
+6. **版本號**只寫在 `codepack/__init__.py` 的 `__version__`(pyproject 用 dynamic 讀取，exe 版本資訊由 spec 讀取);發版時同步更新 `CHANGELOG.md`。
+7. Python 3.10+;相依只有 `pathspec`、`PySide6`(GUI)。新增相依前要先確認可離線運作且能被 PyInstaller 打包。
 
 ## 架構
 

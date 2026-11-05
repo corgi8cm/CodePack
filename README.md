@@ -78,3 +78,6 @@ python packaging/build.py
 pytest
 ```
 架構與規範見 [CLAUDE.md](CLAUDE.md)。
+
+## 授權
+[MIT](LICENSE)

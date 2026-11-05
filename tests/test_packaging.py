@@ -63,3 +63,17 @@ def test_cli_prog_name_when_frozen(monkeypatch):
     finally:
         monkeypatch.delattr(sys, "frozen")
         importlib.reload(cli)
+
+
+def test_version_has_single_source(capsys):
+    import re
+
+    from codepack import __version__, cli
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'dynamic = ["version"]' in pyproject
+    assert 'version = {attr = "codepack.__version__"}' in pyproject
+    with pytest.raises(SystemExit):
+        cli.main(["--version"])
+    assert capsys.readouterr().out.strip().endswith(__version__)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codepack"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Pack a source project into a single text file for pasting into web-based AI assistants."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,6 +28,10 @@ codepack = "codepack.cli:main"
 
 [project.gui-scripts]
 codepack-gui = "codepack.gui.app:main"
+
+[tool.setuptools.dynamic]
+# The only place to change the version is codepack/__init__.py.
+version = {attr = "codepack.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["codepack*"]
